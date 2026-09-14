@@ -1,83 +1,70 @@
-# PokeMarket — Propuesta de proyecto
-### BDY1103, Taller de Base de Datos — Evaluación Parcial N°1
+# Scripts SQL — TecnoParts SpA (BDY1103)
 
-## 1. Contexto de negocio
+Base de datos Oracle para la tienda de computadores y componentes del caso semestral.
 
-**PokeMarket** es una tienda en línea de compra y venta de cartas Pokémon coleccionables. Tres tipos de usuario interactúan con la plataforma:
+## Orden de ejecución
 
-- **Administrador**: gestiona el catálogo (cartas, colecciones, precios) y supervisa la operación.
-- **Vendedor**: publica y actualiza cartas disponibles para la venta.
-- **Cliente**: navega el catálogo y realiza pedidos.
-
-El objetivo del desarrollo en PL/SQL es automatizar y asegurar la integridad de tres procesos críticos del negocio: la consulta de catálogo por colección/rareza, el registro de pedidos con control de stock en tiempo real, y la auditoría de cambios de precio.
-
-## 2. Modelo de datos
-
-| Tabla | Descripción |
-|---|---|
-| `roles` | Catálogo de roles (Administrador, Vendedor, Cliente) |
-| `usuarios` | Usuarios de la plataforma, cada uno con un rol |
-| `colecciones` | Sets/colecciones de cartas (ej. Base Set, Jungla) |
-| `cartas` | Catálogo de cartas: nombre, colección, rareza, tipo, precio, stock |
-| `pedidos` | Cabecera de cada pedido: usuario, fecha, estado, total |
-| `detalle_pedido` | Líneas de un pedido: qué carta, cuántas unidades, a qué precio |
-| `auditoria_precios` | Registro histórico de cambios de precio (alimentada por trigger) |
-
-Con este modelo alcanza para cubrir con solidez los cinco indicadores de la pauta, sin sobrecargar el proyecto. El DDL completo, los datos de prueba y todo el código PL/SQL están en `pokemarket_modelo.sql`.
-
-## 3. Tipos de datos compuestos (RECORD y VARRAY)
-
-- **RECORD** (`carta_info_rec`): agrupa nombre, precio y stock de una carta al recuperarla desde un cursor, evitando declarar tres variables sueltas.
-- **VARRAY** (`t_carrito`): arreglo de tamaño fijo (máx. 5) que simula el carrito de compra de un cliente, guardando los IDs de las cartas seleccionadas.
-
-Ambos se combinan en el **Bloque anónimo 1** del script: se recorre el VARRAY, y por cada ID se abre un cursor parametrizado que llena el RECORD con los datos de esa carta. Esto justifica el uso conjunto: el VARRAY define *qué* cartas revisar, el RECORD define *cómo* se transporta la información de cada una.
-
-## 4. Cursores explícitos complejos
-
-- **Cursor sin parámetros** (`c_colecciones`): recorre todas las colecciones existentes.
-- **Cursor con parámetros** (`c_cartas_coleccion(p_id_coleccion)`): recorre las cartas de una colección específica.
-- **Loops anidados**: por cada colección (loop externo), se recorren sus cartas (loop interno) para calcular el valor total del inventario por colección — un reporte que ninguna consulta SQL plana entrega directamente de forma tan legible con acumuladores por grupo.
-
-Esto está en el **Bloque anónimo 2**. El mismo patrón (cursor externo + cursor parametrizado interno) se puede reutilizar para un reporte de ventas por cliente (pedidos → detalle_pedido) si quieren mostrar una segunda aplicación en la presentación.
-
-## 5. Control de excepciones
-
-- **Predefinida de Oracle**: `NO_DATA_FOUND`, capturada cuando se busca una carta que no existe.
-- **Definida por el usuario**: `stock_insuficiente`, asociada al código de error `-20001` vía `PRAGMA EXCEPTION_INIT` y lanzada con `RAISE_APPLICATION_ERROR` cuando la cantidad pedida supera el stock disponible.
-- **`WHEN OTHERS`**: red de seguridad final que captura cualquier error no anticipado y lo reporta con `SQLERRM`.
-
-Criterio para justificar en el informe/presentación: se usan excepciones predefinidas cuando el error es genérico y ya cubierto por Oracle (dato no encontrado, división por cero, etc.), y excepciones propias cuando la regla de negocio es específica de PokeMarket (no se puede vender más stock del disponible) y Oracle no tiene un código para eso.
-
-## 6. Procedimientos, funciones, package y triggers
-
-- **Función `calcular_total_pedido`**: suma cantidad × precio_unitario de todas las líneas de un pedido.
-- **Función `precio_con_descuento`**: aplica 10% de descuento si la cantidad comprada es ≥ 5 unidades.
-- **Procedimiento `registrar_pedido`**: valida stock con bloqueo (`FOR UPDATE`), crea el pedido y su detalle, y delega en el trigger la actualización del stock.
-- **Package `pkg_ventas`**: agrupa las dos funciones y el procedimiento anteriores bajo una sola interfaz, ocultando la implementación interna (encapsulamiento) y facilitando el mantenimiento.
-- **Trigger `trg_actualiza_stock`** (`AFTER INSERT` en `detalle_pedido`): descuenta automáticamente el stock cada vez que se agrega una línea a un pedido, sin depender de que la aplicación cliente lo haga bien.
-- **Trigger `trg_auditoria_precio`** (`BEFORE UPDATE OF precio` en `cartas`): registra en `auditoria_precios` cada cambio de precio, con valor anterior, nuevo y usuario — ejemplo directo de auditoría automática, uno de los usos de triggers que pide explicar la pauta.
-
-Puntos a discutir en el informe (la pauta lo pide explícitamente): el trigger de stock introduce un efecto colateral implícito — cualquiera que revise `detalle_pedido` sin conocer el trigger puede no entender por qué cambia el stock; por eso deben documentarlo bien. Y el package centraliza la lógica de negocio en la base de datos, lo que facilita reutilización pero acopla la aplicación a Oracle específicamente.
-
-## 7. Mapeo a la pauta de evaluación
-
-| Indicador | Peso | Evidencia en el proyecto |
+| # | Archivo | Qué hace |
 |---|---|---|
-| IE1.1.1 / IE1.1.2 — RECORD y VARRAY | 5% / 15% | Bloque anónimo 1 |
-| IE1.2.1 / IE1.2.2 — Cursores complejos + loops anidados | 10% / 15% | Bloque anónimo 2 |
-| IE1.3.1 / IE1.3.2 — Excepciones | 10% / 15% | Bloque anónimo 3 |
-| IE1.4.1 / IE1.4.2 — Procedimientos, funciones, package, triggers | 15% / 15% | `pkg_ventas`, `trg_actualiza_stock`, `trg_auditoria_precio` |
+| 00 | `00_instalar_todo.sql` | Script maestro: ejecuta del 01 al 06 y genera `instalacion.log` |
+| 01 | `01_eliminar_objetos.sql` | Limpia el esquema (solo para reinstalar desde cero) |
+| 02 | `02_crear_tablas.sql` | 12 tablas, restricciones, 5 secuencias y 4 índices |
+| 03 | `03_poblar_datos.sql` | Datos de prueba: 10 categorías, 31 productos, 12 clientes, 21 ventas |
+| 04 | `04_funciones_procedimientos.sql` | `sp_registrar_log`, `fn_margen_pct`, `fn_precio_final`, `fn_dias_cobertura` |
+| 05 | `05_packages.sql` | `pkg_ventas` y `pkg_inventario` (especificación + cuerpo) |
+| 06 | `06_triggers.sql` | 5 triggers de validación, auditoría y automatización |
+| 07 | `07_bloque_anonimo_reporte.sql` | Bloque anónimo del reporte (RECORD, VARRAY, cursores anidados, excepciones) |
+| 08 | `08_pruebas.sql` | 14 pruebas de los objetos y de los caminos de excepción |
 
-(El primer porcentaje de cada fila es el peso en el informe; el segundo, en la presentación individual.)
+Desde SQL*Plus, parado en la carpeta de los scripts:
 
-## 8. Cómo usar esto para armar el informe
+```
+sqlplus usuario/clave@XEPDB1 @00_instalar_todo.sql
+```
 
-El informe debe seguir literalmente esta estructura (ya está en el orden de la pauta): Introducción → Tipos de datos compuestos → Desarrollo con cursores → Control de excepciones → Evaluación de procedimientos/funciones/packages/triggers → Conclusión → Anexos (código completo + diagramas). Las secciones 3 a 6 de este documento son casi el borrador directo de esas mismas secciones del informe — solo falta expandir la redacción y agregar el diagrama entidad-relación del modelo.
+Luego, por separado:
 
-## 9. Próximos pasos
+```
+@07_bloque_anonimo_reporte.sql
+@08_pruebas.sql
+```
 
-1. Correr `pokemarket_modelo.sql` en Oracle (SQL Developer, Live SQL, o el motor que usen en el taller) y revisar que todo compile y los bloques anónimos impriman lo esperado.
-2. Ajustar nombres/datos si el equipo quiere afinar el caso (por ejemplo, agregar condición de la carta: Mint, Near Mint, etc.).
-3. Dibujar el diagrama entidad-relación del modelo para el informe.
-4. Redactar el informe usando este documento como base.
-5. Preparar el guión de la presentación individual (puntos a–g), en tono de justificación más que de descripción técnica pura.
+En SQL Developer: abrir cada archivo y ejecutar con F5 (Run Script), no con Ctrl+Enter.
+
+## Dos detalles de orden que importan
+
+1. **Los datos se cargan antes que los triggers.** Si los triggers existieran durante la carga histórica, `trg_descuenta_stock` descontaría el stock dos veces (una por el trigger y otra por el `UPDATE` final del script 03). Por eso el script 03 calcula el stock final y los movimientos de SALIDA de forma explícita.
+2. **Las funciones van antes que los packages,** porque `pkg_ventas` y `pkg_inventario` invocan `sp_registrar_log`.
+
+## Casos preparados a propósito para la demostración
+
+| Caso | Dónde | Qué demuestra |
+|---|---|---|
+| Categoría 9 (Refrigeración) sin fila en `META_CATEGORIA` | script 03 | Excepción de usuario `e_meta_no_definida` |
+| Categoría 7 (Gabinetes) con metas en 0 | script 03 | Excepción de usuario `e_meta_en_cero` |
+| Categoría 10 inactiva | script 03 | El cursor `c_categorias` filtra `activo = 'S'` |
+| Venta 21 en estado ANULADA | script 03 | El cursor del reporte filtra `estado = 'EMITIDA'` |
+| Ventas 19 y 20 del trimestre anterior | script 03 | El filtro por rango de fechas del cursor parametrizado |
+| Productos sin ventas en el período | script 03 | El `LEFT JOIN` los conserva con métricas en 0 |
+| Producto 303 con stock bajo el crítico | scripts 03 y 08 | Trigger `trg_alerta_stock_critico` |
+
+Las fechas de las ventas usan `GREATEST(TRUNC(SYSDATE,'Q'), SYSDATE - n)`, así siempre caen dentro del trimestre en curso sin quedar en el futuro, independientemente del día en que se ejecute el script.
+
+## Mapeo con los indicadores de la evaluación
+
+| Indicador | Evidencia |
+|---|---|
+| IE1.1.1 — RECORD y VARRAY | Script 07: `t_resumen_cat`, `t_metas_trim` (VARRAY(4)), `t_top_sku` (VARRAY(5)) |
+| IE1.2.1 — Cursores explícitos complejos con parámetros y loops anidados | Script 07: `c_categorias`, `c_productos(3 parámetros)`, `c_movimientos(2 parámetros)` en tres niveles |
+| IE1.3.1 — Excepciones Oracle y de usuario | Script 07 (tres niveles de manejo) y script 08 (pruebas 4, 5, 7, 8, 9, 11) |
+| IE1.4.1 — Procedimientos, funciones, packages y triggers | Scripts 04, 05 y 06 |
+
+## Verificación rápida tras instalar
+
+```sql
+SELECT object_name, object_type, status
+  FROM user_objects
+ WHERE status <> 'VALID';   -- debe devolver 0 filas
+```
+
+Si algún objeto queda inválido, `SHOW ERRORS` después del `CREATE` muestra la línea exacta.
